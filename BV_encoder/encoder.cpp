@@ -1,15 +1,15 @@
 #include "encoder.h"
 #include <Eigen/Eigen>	//Includes Dense and Sparse header files (the whole Eigen library)
 #include <math.h>
-
-#define b 10
+#include <iostream>
+#include <algorithm>
 
 //------------------------------------ Function definitions -------------------------------------
 
 /*Construct an octree of depth b, based on sorted (ascending order) b-bit Morton codes of
 the input point cloud. This octree will have b + 1 levels in total, from level 0 (root) to
 level b (leaves).*/
-void constructOctree(b, octree& my_OT)
+void constructOctree(const int b, octree& my_OT)
 {
 
 
@@ -19,7 +19,7 @@ void constructOctree(b, octree& my_OT)
 /*For each occupied octree cell at each octree level, compute the x, y, z coordinates of each
 corner of this cell, then extract only the unique corners at each level and the pointer to the
 associated Bezier control point for each unique corner.*/
-void computeCornerCoordinates(b, const int max_lvl, corners& input_corners, octree& my_OT)
+void computeCornerCoordinates(const int b, const int max_lvl, corners& input_corners, octree& my_OT)
 {
 	for (int lvl = 0; lvl < max_lvl; lvl++)
 	{
@@ -43,7 +43,24 @@ void computeCornerCoordinates(b, const int max_lvl, corners& input_corners, octr
 
 		/*Reorganize all the corner coordinates for the current octree level, so that all 8 corners for one octree
 		cell have their coordinates listed one after another (i.e, in an 8 x 3 matrix), inside corner_coords*/
-		input_corners.corner_coords(lvl).resize((corners1.rows() + corners2_8.rows()), 3);
+		Eigen::Matrix<double, (corners1.rows() + corners2_8.rows()), 3> corner_coords = ;
+
+		//Extract the coordinates of only the unique corners at the current octree level
+		for (int r = 0; r < corner_coords.rows(); r++)
+		{
+			//Get the r-th row of coordinates from corner_coords
+			Eigen::Array<double, 1, 3> current_row = corner_coords.data.row(r);
+
+			//If the current row has not already been stored inside unique_coords, store it
+			int* p = std::find(input_corners.unique_coords(lvl).row(0), input_corners.unique_coords(lvl).row(1), current_row);
+			if (p != input_corners.unique_coords(lvl).row(1))
+			{
+				input_corners.unique_coords(lvl)() = current_row;
+			}
+		}
+		
+
+		//For each row of coordinates in corner_coords, store a pointer to the corresponding row in unique_coords
 
 	}
 
@@ -60,7 +77,7 @@ extractOccupiedVoxels()
 
 /*For each unique corner of the occupied blocks at each octree level, compute the Bezier
 control point (SDF value) for this corner.*/
-void computeControlPoints(const int thresh, const int max_lvl, corners& input_corners, Eigen::Matrix<Eigen::VectorXd, (b + 1), 1>& control_points)
+void computeControlPoints(const int ctrlpt_thresh, const int max_lvl, const int b, corners& input_corners, Eigen::Matrix<Eigen::VectorXd, int depth, 1>& control_points)
 {
 	/*The number of control points inside each vector in control_points will be equal to the number of 
 	unique corners at the corresponding octree level*/
@@ -135,25 +152,48 @@ encode()
 
 //----------------------------------- Begin program execution -----------------------------------
 
-int main(void)
+int main(int argc, char* argv[])
 {
-	const int max_lvl = b + 1;
-	const int thresh = 8;
+	std::string ptcloud_file;	//Full path to input point cloud
+	int b;						//Octree depth (root = level 0; leaves = level b)
+	int start_lvl;				//Octree level for which to transmit control points to the decoder, and from which to start wavelet analysis
+	int max_lvl;				//Highest octree level for which Bezier control points will be computed at the encoder
+	int q_stepsize;				//Quantization stepsize for uniform scalar quantization of control points at start_lvl and all wavelet coefficients
+	int ctrlpt_thresh;			//Threshold above which control points will be computed as average dot products for each unique corner
+	int zero_threshold;			//Threshold at/below which wavelet coefficients are considered zero (this information is required for pruning)
 
-	//Read in input point cloud
+	//Check for correct number of input arguments to the command line (need 8 input arguments, the first one being the executable name)
+	if (argc < 8)
+	{
+		std::cerr << "Usage: " << argv[0] << " ptcloud_file b start_lvl max_lvl q_stepsize ctrlpt_thresh zero_threshold" << std::endl;
+
+		return 1;
+	}
+	else
+	{
+		ptcloud_file = argv[1];
+		b = std::stoi(argv[2]);
+		start_lvl = std::stoi(argv[3]);
+		max_lvl = std::stoi(argv[4]);
+		q_stepsize = std::stoi(argv[5]);
+		ctrlpt_thresh = std::stoi(argv[6]);
+		zero_threshold = std::stoi(argv[7]);
+	}
+
+	//Read in input point cloud (SVO format)
 	
 
 	/*Construct an octree of depth b, based on sorted (ascending order) b-bit Morton codes of
 	the input point cloud. This octree will have b + 1 levels in total, from level 0 (root) to 
 	level b (leaves).*/
 	octree my_OT;
-	void constructOctree(b, octree& my_OT);
+	constructOctree(b, my_OT);
 
 	/*For each occupied octree cell at each octree level, compute the x, y, z coordinates of each
 	corner of this cell, then extract only the unique corners at each level and the pointer to the
 	associated Bezier control point for each unique corner.*/
 	corners input_corners;
-	void computeCornerCoordinates(b, const int max_lvl, corners& input_corners, octree& my_OT);
+	computeCornerCoordinates(b, max_lvl, input_corners, my_OT);
 
 	extractOccupiedVoxels();
 
@@ -161,7 +201,7 @@ int main(void)
 	Eigen::Matrix<Eigen::VectorXd, (b + 1), 1> control_points;
 	/*For each unique corner of the occupied blocks at each octree level, compute the Bezier
 	control point (SDF value) for this corner.*/
-	void computeControlPoints(const int thresh, const int max_lvl, corners& input_corners, Eigen::Matrix<Eigen::VectorXd, (b + 1), 1>& control_points);
+	computeControlPoints(ctrlpt_thresh, max_lvl, &input_corners, &control_points);
 
 	waveletAnalysis();
 
